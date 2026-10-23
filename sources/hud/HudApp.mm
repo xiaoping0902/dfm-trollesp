@@ -296,7 +296,7 @@ static void ESPHandleHIDEvent(IOHIDEventRef event) {
     Class repClass = hud::ESPAccessibilityEventClass();
     if (!repClass) return;
 
-    AXEventRepresentation *rep = nil;
+    ESPAXEventRepresentation *rep = nil;
     @try {
         rep = [repClass representationWithHIDEvent:event hidStreamIdentifier:@"UIApplicationEvents"];
     } @catch (NSException *e) {

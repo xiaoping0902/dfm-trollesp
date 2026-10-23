@@ -13,6 +13,30 @@ typedef struct __IOHIDNotification *IOHIDNotificationRef;
 typedef struct __IOHIDService *IOHIDServiceRef;
 typedef struct __GSEvent *GSEventRef;
 
+// ---- 私有类的最小声明（类在 AccessibilityUtilities/SpringBoardServices 里，运行时加载）----
+// 注意：@interface 必须在全局作用域，不能塞进 namespace。
+
+@interface ESPAXEventPathInfoRepresentation : NSObject
+@property (assign, nonatomic) unsigned char pathIdentity;
+@end
+
+@interface ESPAXEventHandInfoRepresentation : NSObject
+- (NSArray<ESPAXEventPathInfoRepresentation *> *)paths;
+@end
+
+@interface ESPAXEventRepresentation : NSObject
+@property (nonatomic, readonly) BOOL isTouchDown;
+@property (nonatomic, readonly) BOOL isMove;
+@property (nonatomic, readonly) BOOL isChordChange;
+@property (nonatomic, readonly) BOOL isLift;
+@property (nonatomic, readonly) BOOL isInRange;
+@property (nonatomic, readonly) BOOL isInRangeLift;
+@property (nonatomic, readonly) BOOL isCancel;
++ (instancetype)representationWithHIDEvent:(IOHIDEventRef)event hidStreamIdentifier:(NSString *)identifier;
+- (ESPAXEventHandInfoRepresentation *)handInfo;
+- (CGPoint)location;
+@end
+
 namespace hud {
 
 struct PrivateApi {
@@ -25,7 +49,6 @@ struct PrivateApi {
     void *(*BKSHIDEventRegisterEventCallback)(void (*cb)(void *, void *, IOHIDServiceRef, IOHIDEventRef));
 
     Class accessibilityWindowHostingClass;   // SBSAccessibilityWindowHostingController
-    Class accessibilityUtilitiesBundleLoad;  // 仅用于懒加载 AXEventRepresentation
 
     bool load();
     bool valid() const {
@@ -37,28 +60,7 @@ struct PrivateApi {
 
 PrivateApi &api();
 
-// AXEventRepresentation 的最小声明（类在 AccessibilityUtilities 里，运行时加载）
-@interface AXEventPathInfoRepresentation : NSObject
-@property (assign, nonatomic) unsigned char pathIdentity;
-@end
-
-@interface AXEventHandInfoRepresentation : NSObject
-- (NSArray<AXEventPathInfoRepresentation *> *)paths;
-@end
-
-@interface AXEventRepresentation : NSObject
-@property (nonatomic, readonly) BOOL isTouchDown;
-@property (nonatomic, readonly) BOOL isMove;
-@property (nonatomic, readonly) BOOL isChordChange;
-@property (nonatomic, readonly) BOOL isLift;
-@property (nonatomic, readonly) BOOL isInRange;
-@property (nonatomic, readonly) BOOL isInRangeLift;
-@property (nonatomic, readonly) BOOL isCancel;
-+ (instancetype)representationWithHIDEvent:(IOHIDEventRef)event hidStreamIdentifier:(NSString *)identifier;
-- (AXEventHandInfoRepresentation *)handInfo;
-- (CGPoint)location;
-@end
-
+// 运行时加载 AccessibilityUtilities 并取 AXEventRepresentation 类
 Class ESPAccessibilityEventClass(void);
 
 } // namespace hud

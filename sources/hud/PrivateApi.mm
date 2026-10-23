@@ -59,7 +59,7 @@ bool PrivateApi::load() {
     NSLog(@"[esp] private api: appInit=%p instantiate=%p gs=%p bks=%p hid=%p hosting=%p",
           (void *)UIApplicationInitialize, (void *)UIApplicationInstantiateSingleton,
           (void *)GSInitialize, (void *)BKSDisplayServicesStart,
-          (void *)BKSHIDEventRegisterEventCallback, (void *)accessibilityWindowHostingClass);
+          (void *)BKSHIDEventRegisterEventCallback, (__bridge void *)accessibilityWindowHostingClass);
 
     return valid();
 }
