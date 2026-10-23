@@ -26,8 +26,4 @@
 - (BOOL)handleBallTouchAt:(CGPoint)point phase:(int)phase;
 @end
 
-// 给 HUD 窗口 / HID 回调用的 C 接口
-BOOL ESPHudMenuVisible(void);
-void ESPHudToggleMenu(void);
-void ESPHudShutdown(void);
-BOOL ESPHudHandleBallTouch(CGPoint point, int phase);
+// C 接口统一在 HudBridge.h（那边是 extern "C"，避免 C++ 链接不一致）
