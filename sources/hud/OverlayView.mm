@@ -131,6 +131,8 @@ static ImFont *ESPLoadFont(void) {
     esp::DebugOptions _debug;
     int _debugTarget;
     bool _previewMode;
+    bool _autoOpened;
+    std::atomic<bool> _userTouched;
 
     double _lastFrameTime;
     int _notifyToken;
@@ -162,6 +164,8 @@ static ImFont *ESPLoadFont(void) {
         _notifyToken = -1;
         _previewMode = preview;
         _debugTarget = 0;
+        _autoOpened = false;
+        _userTouched = false;
         _debug.windowOpen = preview;
         _debug.boneLabels = preview;
 
@@ -295,6 +299,29 @@ static bool ESPOffsetsDiffer(const esp::Offsets &a, const esp::Offsets &b) {
     _worker = std::thread([rawSelf]() {
         [rawSelf workerLoop];
     });
+
+    // 第一次进游戏先自动把菜单/调试窗口弹出来，避免"找不到 UI 窗口"
+    if (!_previewMode && !_autoOpened) {
+        _autoOpened = true;
+        __weak OverlayView *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+                           OverlayView *strongSelf = weakSelf;
+                           if (!strongSelf) return;
+                           strongSelf->_menuOpen = true;
+                           strongSelf->_debug.windowOpen = true;
+                       });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(45.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+                           OverlayView *strongSelf = weakSelf;
+                           if (!strongSelf) return;
+                           // 45 秒内没人碰过就自动收起，把操作权还给游戏
+                           if (!strongSelf->_userTouched.load()) {
+                               strongSelf->_menuOpen = false;
+                               strongSelf->_debug.windowOpen = false;
+                           }
+                       });
+    }
 }
 
 - (void)stopEngine {
@@ -476,6 +503,7 @@ static bool ESPOffsetsDiffer(const esp::Offsets &a, const esp::Offsets &b) {
 
 - (void)feedTouches:(NSSet<UITouch *> *)touches event:(UIEvent *)event {
     if (![self menuVisible]) return;    // 菜单/调试窗口都关着就不吃输入
+    _userTouched = true;
 
     UITouch *any = touches.anyObject ?: event.allTouches.anyObject;
     if (!any) return;
