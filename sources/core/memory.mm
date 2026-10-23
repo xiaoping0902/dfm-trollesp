@@ -1,5 +1,5 @@
 //
-//  memory.cpp
+//  memory.mm
 //  DFM TrollESP —— 进程/内存访问层
 //
 //  外部模式（TrollStore 直装）：
@@ -8,7 +8,11 @@
 //      com.apple.private.security.no-sandbox，且进程以 root 运行（HUD 模式）。
 //
 //  内联模式（越狱或 TrollFools 注入，编译时 -DESP_INTERNAL）：
-//      直接 mach_task_self()，模块基址取 _dyld_get_image_vmaddr_slide(0)。
+//      直接 mach_task_self()，模块基址取 _dyld_get_image_header(0)。
+//
+//  这里刻意不用 libproc.h（iPhoneOS SDK 里没有这个头）：
+//    * 找 pid      -> sysctl(KERN_PROC_ALL) + kinfo_proc.p_comm
+//    * 找镜像基址  -> mach_vm_region_recurse 遍历 + 读 Mach-O 头，filetype == MH_EXECUTE
 //
 
 #include "esp_core.hpp"
@@ -23,11 +27,12 @@
 #include <unistd.h>
 
 #include <dlfcn.h>
-#include <libproc.h>
 #include <mach-o/dyld.h>
+#include <mach-o/loader.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
-#include <sys/proc_info.h>
+#include <mach/vm_region.h>
+#include <sys/sysctl.h>
 #include <sys/types.h>
 
 // 某些 SDK 的 <mach/mach.h> 里没有 task_for_pid 的声明，自己补一份
@@ -42,7 +47,7 @@ uint64_t NowMs() {
 }
 
 bool IsReadablePointer(uint64_t p) {
-    // iOS 用户态指针范围（arm64 关闭 4GB 以上的内核地址）
+    // iOS 用户态指针范围（arm64 39 位用户空间）
     return p >= 0x100000000ull && p < 0x8000000000ull;
 }
 
@@ -79,6 +84,10 @@ void Reader::Detach() {
     if (task_ != MACH_PORT_NULL && task_ != mach_task_self()) {
         mach_port_deallocate(mach_task_self(), task_);
     }
+#else
+    if (task_ != MACH_PORT_NULL && task_ != mach_task_self()) {
+        mach_port_deallocate(mach_task_self(), task_);
+    }
 #endif
     task_ = MACH_PORT_NULL;
     pid_ = 0;
@@ -101,7 +110,7 @@ bool Reader::ReadPtr(uint64_t addr, uint64_t& out) const {
 }
 
 // ---------------------------------------------------------------------------
-// 进程枚举 / 模块基址
+// 进程枚举（sysctl，不依赖 libproc）
 // ---------------------------------------------------------------------------
 
 bool FindPid(const char* exeName, pid_t* outPid) {
@@ -113,26 +122,29 @@ bool FindPid(const char* exeName, pid_t* outPid) {
     return true;
 #endif
 
-    int bytes = proc_listpids(PROC_ALL_PIDS, 0, nullptr, 0);
-    if (bytes <= 0) return false;
+    if (!exeName || !*exeName) return false;
 
-    std::vector<pid_t> pids(static_cast<size_t>(bytes) / sizeof(pid_t) + 64);
-    bytes = proc_listpids(PROC_ALL_PIDS, 0, pids.data(), static_cast<int>(pids.size() * sizeof(pid_t)));
-    if (bytes <= 0) return false;
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size = 0;
+    if (sysctl(mib, 4, nullptr, &size, nullptr, 0) != 0 || size == 0) return false;
 
-    const size_t count = static_cast<size_t>(bytes) / sizeof(pid_t);
+    // 进程数会变，留点余量
+    std::vector<uint8_t> buffer(size + size / 2 + 4096);
+    size = buffer.size();
+    if (sysctl(mib, 4, buffer.data(), &size, nullptr, 0) != 0) return false;
+
+    const size_t count = size / sizeof(struct kinfo_proc);
+    const struct kinfo_proc* procs = reinterpret_cast<const struct kinfo_proc*>(buffer.data());
     const pid_t self = getpid();
 
     for (size_t i = 0; i < count; ++i) {
-        pid_t pid = pids[i];
+        const pid_t pid = procs[i].kp_proc.p_pid;
         if (pid <= 0 || pid == self) continue;
 
-        char path[PROC_PIDPATHINFO_MAXSIZE] = {0};
-        if (proc_pidpath(pid, path, sizeof(path)) <= 0) continue;
-
-        const char* slash = strrchr(path, '/');
-        const char* base = slash ? slash + 1 : path;
-        if (strcasecmp(base, exeName) == 0) {
+        // p_comm 最多 16 个字符，长名字只能比前 16 位
+        char comm[17] = {0};
+        memcpy(comm, procs[i].kp_proc.p_comm, 16);
+        if (strncasecmp(comm, exeName, 16) == 0) {
             *outPid = pid;
             return true;
         }
@@ -140,58 +152,84 @@ bool FindPid(const char* exeName, pid_t* outPid) {
     return false;
 }
 
+// ---------------------------------------------------------------------------
+// 主程序镜像基址：遍历区域，找 filetype == MH_EXECUTE 的 Mach-O
+// ---------------------------------------------------------------------------
+
 bool FindMainImageBase(pid_t pid, const char* exeName, uint64_t* outBase) {
     if (pid <= 0 || !outBase) return false;
+    (void)exeName;
 
 #ifdef ESP_INTERNAL
     if (pid == getpid()) {
-        // 注入模式：主程序镜像的运行时基址（不要用 slide，arm64 的 vmaddr 不是 0）
-        const struct mach_header *header = _dyld_get_image_header(0);
+        // 注入模式：主程序镜像头的运行时地址（不要用 slide，arm64 的 vmaddr 不是 0）
+        const struct mach_header* header = _dyld_get_image_header(0);
         *outBase = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(header));
         return header != nullptr;
     }
 #endif
 
-    struct proc_regionwithpathinfo rw;
+    mach_port_t task = MACH_PORT_NULL;
+    const bool ownTask = (pid == getpid());
+    if (ownTask) {
+        task = mach_task_self();
+    } else {
+        kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
+        if (kr != KERN_SUCCESS || task == MACH_PORT_NULL) return false;
+    }
+
+    // 复用已获得的端口来读 header：读完归还
+    struct ScopedPort {
+        mach_port_t port;
+        bool owned;
+        ScopedPort(mach_port_t p, bool o) : port(p), owned(o) {}
+        ~ScopedPort() {
+            if (owned && port != MACH_PORT_NULL && port != mach_task_self()) {
+                mach_port_deallocate(mach_task_self(), port);
+            }
+        }
+    } scoped(task, !ownTask);
+
     uint64_t addr = 0;
-    bool foundFallback = false;
-    uint64_t fallbackBase = 0;
+    bool found = false;
 
     for (int guard = 0; guard < 200000; ++guard) {
-        memset(&rw, 0, sizeof(rw));
-        int n = proc_pidinfo(pid, PROC_PIDREGIONPATHINFO, addr, &rw, sizeof(rw));
-        if (n <= 0) break;
+        vm_region_submap_info_data_64_t info;
+        mach_msg_type_number_t infoCount = VM_REGION_SUBMAP_INFO_COUNT_64;
+        mach_vm_address_t regionAddr = addr;
+        mach_vm_size_t regionSize = 0;
+        natural_t depth = 0;
 
-        const uint64_t start = rw.prp_prinfo.pri_address;
-        const uint64_t size = rw.prp_prinfo.pri_size;
-        const char* path = rw.prp_vip.vip_path;
-        const uint64_t fileOff = static_cast<uint64_t>(rw.prp_prinfo.pri_file_offset);
+        kern_return_t kr = mach_vm_region_recurse(
+            task, &regionAddr, &regionSize, &depth,
+            reinterpret_cast<vm_region_recurse_info_t>(&info), &infoCount);
+        if (kr != KERN_SUCCESS || regionSize == 0) break;
 
-        if (path[0] != '\0') {
-            const char* slash = strrchr(path, '/');
-            const char* baseName = slash ? slash + 1 : path;
-            const bool nameMatch = exeName && strcasecmp(baseName, exeName) == 0;
-            if (nameMatch) {
-                if (fileOff == 0) {                     // __TEXT 段起点 = 镜像基址
-                    *outBase = start;
-                    return true;
-                }
-                if (!foundFallback) {
-                    foundFallback = true;
-                    fallbackBase = start;
+        const bool executable = (info.protection & VM_PROT_EXECUTE) != 0;
+        if (executable && regionAddr != 0) {
+            // 直接读目标内存里的 Mach-O 头（读自己时用 memcpy 更快，这里统一用 mach API）
+            struct mach_header_64 header;
+            mach_vm_size_t got = 0;
+            uint32_t magic = 0;
+            kr = mach_vm_read_overwrite(task, regionAddr, 4,
+                                        reinterpret_cast<mach_vm_address_t>(&magic), &got);
+            if (kr == KERN_SUCCESS && got == 4 && magic == MH_MAGIC_64) {
+                got = 0;
+                kr = mach_vm_read_overwrite(task, regionAddr, sizeof(header),
+                                            reinterpret_cast<mach_vm_address_t>(&header), &got);
+                if (kr == KERN_SUCCESS && got == sizeof(header) &&
+                    header.filetype == MH_EXECUTE) {
+                    *outBase = static_cast<uint64_t>(regionAddr);
+                    found = true;
+                    break;
                 }
             }
         }
 
-        if (size == 0) break;
-        addr = start + size;
+        addr = static_cast<uint64_t>(regionAddr) + static_cast<uint64_t>(regionSize);
     }
 
-    if (foundFallback) {
-        *outBase = fallbackBase;
-        return true;
-    }
-    return false;
+    return found;
 }
 
 } // namespace esp
