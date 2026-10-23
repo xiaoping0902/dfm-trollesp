@@ -22,27 +22,11 @@
 #include "draw.hpp"
 #include "imgui.h"
 #include "imgui_impl_metal.h"
+#include "HudBridge.h"
+#include "crashlog.h"
 
 static const char *kReloadNotification = "com.dfm.trollesp.reload";
 
-static OverlayView *gOverlay = nil;
-
-BOOL ESPHudMenuVisible(void) {
-    return gOverlay ? [gOverlay menuVisible] : NO;
-}
-
-void ESPHudToggleMenu(void) {
-    [gOverlay toggleMenu];
-}
-
-void ESPHudShutdown(void) {
-    [gOverlay stopEngine];
-    exit(0);
-}
-
-BOOL ESPHudHandleBallTouch(CGPoint point, int phase) {
-    return gOverlay ? [gOverlay handleBallTouchAt:point phase:phase] : NO;
-}
 
 // ---------------------------------------------------------------------------
 // ImGui 样式 / 字体
@@ -152,16 +136,14 @@ static ImFont *ESPLoadFont(void) {
 }
 
 - (instancetype)initWithFrame:(CGRect)frame preview:(BOOL)preview {
+    // 注意：iOS 上只有“默认设备”这一块 GPU，MTLCopyAllDevices() 在 iOS 不存在/会崩（实测 SIGSEGV）。
+    // HUD 是 root 守护进程，默认设备有可能这时候还拿不到，由上层延迟重试。
     _device = MTLCreateSystemDefaultDevice();
     if (!_device) {
-        // HUD 是 root 守护进程，默认设备偶尔拿不到，用全量列表兜一下
-        NSArray<id<MTLDevice>> *all = MTLCopyAllDevices();
-        if (all.count > 0) _device = all.firstObject;
-    }
-    if (!_device) {
-        NSLog(@"[esp] 没有 Metal 设备（检查 com.apple.QuartzCore.displayable-context 权限）");
+        ESPLogStep("metal: MTLCreateSystemDefaultDevice() 返回 nil（交由上层重试/兜底）");
         return nil;
     }
+    ESPLogStep("metal: device ok (%s)", [[_device name] UTF8String] ?: "?");
 
     if (self = [super initWithFrame:frame device:_device]) {
         _workerRunning = false;
@@ -213,7 +195,7 @@ static ImFont *ESPLoadFont(void) {
         ESPLoadFont();
         ImGui_ImplMetal_Init(_device);
 
-        gOverlay = self;
+        ESPHudSetActiveOverlay(self);
 
         __weak OverlayView *weakSelf = self;
         notify_register_dispatch(kReloadNotification, &_notifyToken, dispatch_get_main_queue(),
@@ -231,7 +213,7 @@ static ImFont *ESPLoadFont(void) {
         notify_cancel(_notifyToken);
         _notifyToken = -1;
     }
-    if (gOverlay == self) gOverlay = nil;
+    ESPHudClearActiveOverlay(self);
     ImGui_ImplMetal_Shutdown();
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
 }

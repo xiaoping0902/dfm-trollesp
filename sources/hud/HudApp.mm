@@ -23,6 +23,8 @@
 
 #import "PrivateApi.h"
 #import "OverlayView.h"
+#import "FallbackOverlay.h"
+#import "HudBridge.h"
 #import "TouchInject.h"
 
 #pragma mark - 私有声明
@@ -79,13 +81,14 @@
 #pragma mark - 根控制器（带屏幕旋转）
 
 @interface ESPHudRootViewController : UIViewController
-@property (nonatomic, strong) OverlayView *overlay;
+@property (nonatomic, strong) UIView *overlay;          // 当前生效的悬浮层（Metal 或兜底）
 - (void)applyOrientation:(UIInterfaceOrientation)orientation;
 @end
 
 @implementation ESPHudRootViewController {
     FBSOrientationObserver *_orientationObserver;
     UIInterfaceOrientation _orientation;
+    BOOL _installing;
 }
 
 - (void)viewDidLoad {
@@ -94,13 +97,61 @@
     self.view.backgroundColor = [UIColor clearColor];
     self.view.opaque = NO;
 
-    _overlay = [[OverlayView alloc] initWithFrame:self.view.bounds];
-    _overlay.autoresizingMask = UIViewAutoresizingNone;   // 自己管旋转，别让 autoresizing 打架
-    [self.view addSubview:_overlay];
-    [_overlay startEngine];
-
+    // 注意：悬浮层不在这里建。
+    // HUD 是 root 守护进程，MTLCreateSystemDefaultDevice() 在窗口没上屏之前经常返回 nil，
+    // 所以要等窗口 key+visible 之后再建，并且失败就重试，最后兜底到 CoreGraphics。
     [self startOrientationObserver];
-    [self applyOrientation:UIInterfaceOrientationLandscapeRight];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self installOverlayWithRetry:0];
+}
+
+- (void)installOverlayWithRetry:(int)attempt {
+    if (_installing) return;
+    if (self.overlay) return;
+    _installing = YES;
+
+    ESPLogStep("hud: install overlay attempt %d", attempt);
+
+    OverlayView *metal = [[OverlayView alloc] initWithFrame:self.view.bounds];
+    _installing = NO;
+
+    if (metal) {
+        metal.autoresizingMask = UIViewAutoresizingNone;
+        [self.view addSubview:metal];
+        self.overlay = metal;
+        [metal startEngine];
+        ESPLogStep("hud: Metal overlay installed (attempt %d)", attempt);
+        [self reapplyOrientation];
+        return;
+    }
+
+    if (attempt < 4) {
+        __weak ESPHudRootViewController *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+                           ESPHudRootViewController *strongSelf = weakSelf;
+                           if (strongSelf) [strongSelf installOverlayWithRetry:attempt + 1];
+                       });
+        return;
+    }
+
+    ESPLogStep("hud: Metal 不可用 -> CoreGraphics 兜底");
+    ESPFallbackOverlay *fb = [[ESPFallbackOverlay alloc] initWithFrame:self.view.bounds];
+    fb.autoresizingMask = UIViewAutoresizingNone;
+    [self.view addSubview:fb];
+    self.overlay = fb;
+    [fb startEngine];
+    [self reapplyOrientation];
+}
+
+- (void)reapplyOrientation {
+    const UIInterfaceOrientation keep = _orientation;
+    _orientation = UIInterfaceOrientationUnknown;
+    [self applyOrientation:(keep == UIInterfaceOrientationUnknown ? UIInterfaceOrientationLandscapeRight
+                                                                 : keep)];
 }
 
 - (void)startOrientationObserver {
@@ -166,10 +217,11 @@
     const CGPoint center = CGPointMake(CGRectGetMidX(self.view.bounds),
                                        CGRectGetMidY(self.view.bounds));
 
-    _overlay.transform = CGAffineTransformIdentity;
-    _overlay.bounds = CGRectMake(0, 0, size.width, size.height);
-    _overlay.center = center;
-    _overlay.transform = CGAffineTransformMakeRotation(angle);
+    UIView *content = self.overlay;
+    content.transform = CGAffineTransformIdentity;
+    content.bounds = CGRectMake(0, 0, size.width, size.height);
+    content.center = center;
+    content.transform = CGAffineTransformMakeRotation(angle);
 
     NSLog(@"[esp] orientation=%ld size=%.0fx%.0f", (long)orientation, size.width, size.height);
 }
