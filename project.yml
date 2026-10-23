@@ -1,0 +1,65 @@
+# XcodeGen 工程描述 —— 和 iOS打包演示 那套一样，云端 macos-latest 直接生成工程再编
+# 用法: xcodegen generate && xcodebuild -project DFMTrollESP.xcodeproj -scheme DFMTrollESP ...
+name: DFMTrollESP
+
+options:
+  bundleIdPrefix: com.dfm
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    CLANG_ENABLE_OBJC_ARC: YES
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    CLANG_CXX_LIBRARY: libc++
+    ENABLE_BITCODE: NO
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    GCC_WARN_CHECK_SHADOWING: NO
+
+targets:
+  DFMTrollESP:
+    type: application
+    platform: iOS
+    sources:
+      - path: sources/core
+      - path: sources/hud
+      - path: sources/app
+      - path: imgui
+      - path: Resources
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info.plist
+        PRODUCT_NAME: DFMTrollESP
+        PRODUCT_BUNDLE_IDENTIFIER: com.dfm.trollesp
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        DEVELOPMENT_TEAM: ""
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/imgui"
+          - "$(SRCROOT)/sources"
+          - "$(SRCROOT)/sources/core"
+          - "$(SRCROOT)/sources/hud"
+          - "$(SRCROOT)/sources/app"
+        OTHER_LDFLAGS:
+          - "-framework"
+          - "Foundation"
+          - "-framework"
+          - "UIKit"
+          - "-framework"
+          - "Metal"
+          - "-framework"
+          - "MetalKit"
+          - "-framework"
+          - "QuartzCore"
+          - "-framework"
+          - "CoreGraphics"
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "NDEBUG=1"

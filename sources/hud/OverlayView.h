@@ -1,0 +1,29 @@
+//
+//  OverlayView.h
+//  DFM TrollESP
+//
+
+#pragma once
+
+#import <MetalKit/MetalKit.h>
+#import <UIKit/UIKit.h>
+
+@interface OverlayView : MTKView <MTKViewDelegate>
+- (instancetype)initWithFrame:(CGRect)frame;
+
+// preview=YES 时：菜单默认打开、调试窗口默认打开（给你在 App 里直接看数据用，不依赖 HUD 悬浮层）
+- (instancetype)initWithFrame:(CGRect)frame preview:(BOOL)preview;
+
+- (void)startEngine;
+- (void)stopEngine;
+- (void)toggleMenu;
+- (BOOL)menuVisible;
+- (void)setMenuOpen:(BOOL)open;
+- (void)setDebugWindowOpen:(BOOL)open;
+- (void)reloadSettingsFromDisk;
+@end
+
+// 给 HUD 窗口 / HID 回调用的 C 接口
+BOOL ESPHudMenuVisible(void);
+void ESPHudToggleMenu(void);
+void ESPHudShutdown(void);

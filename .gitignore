@@ -1,0 +1,7 @@
+.theos/
+.tipa_stage/
+packages/
+*.o
+*.dylib
+*.tipa
+.DS_Store

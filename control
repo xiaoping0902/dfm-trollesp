@@ -1,0 +1,9 @@
+Package: com.dfm.trollesp
+Name: DFM TrollESP
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 三角洲行动 UE4 骨骼 ESP —— TrollStore 直装版（外部读内存 + Metal/ImGui 叠加层）
+Maintainer: YG
+Author: YG
+Section: Applications
+Depends: firmware (>= 15.0)

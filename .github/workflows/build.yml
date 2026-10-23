@@ -1,0 +1,49 @@
+# 云端打包：XcodeGen 生成工程 -> xcodebuild 无签名编译 -> ldid 签 entitlements -> .tipa
+# 推代码就自动跑；产物在 Actions 页面的 Artifacts 里
+name: build-tipa
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          brew install xcodegen ldid || brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 编译（不签名）
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project DFMTrollESP.xcodeproj \
+            -scheme DFMTrollESP \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tail -n 400
+
+      - name: 打 .tipa（ldid + entitlements）
+        run: |
+          sh tools/package_from_xcode.sh \
+            "build/Build/Products/Release-iphoneos/DFMTrollESP.app" \
+            "$PWD/packages/DFMTrollESP.tipa"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: DFMTrollESP-tipa
+          path: packages/DFMTrollESP.tipa
+          if-no-files-found: error
