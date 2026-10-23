@@ -352,13 +352,13 @@ static BOOL ESPTryBindOwnContext(UIWindow *w) {
     SEL initWithOptions = NSSelectorFromString(@"initWithOptions:localContext:");
     if ([CA instancesRespondToSelector:initWithOptions]) {
         ctx = ((id (*)(id, SEL, id, BOOL))objc_msgSend)([CA alloc], initWithOptions, @{}, YES);
-        ESPLogStep("hud: CAContext initWithOptions:localContext: -> %p", (void *)ctx);
+        ESPLogStep("hud: CAContext initWithOptions:localContext: ok");
     }
     if (!ctx) {
         SEL initRemote = NSSelectorFromString(@"initRemoteWithOptions:");
         if ([CA instancesRespondToSelector:initRemote]) {
             ctx = ((id (*)(id, SEL, id))objc_msgSend)([CA alloc], initRemote, @{});
-            ESPLogStep("hud: CAContext initRemoteWithOptions: -> %p", (void *)ctx);
+            ESPLogStep("hud: CAContext initRemoteWithOptions: ok");
         }
     }
     if (!ctx) {
@@ -421,7 +421,7 @@ static BOOL ESPTryBindOwnContext(UIWindow *w) {
     }
 
     _windowHostingController = [[hostingClass alloc] init];
-    ESPLogStep("hud: hostingController=%p", (void *)_windowHostingController);
+    ESPLogStep("hud: hostingController created");
 
     @try {
         NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:"v@:Id"];
