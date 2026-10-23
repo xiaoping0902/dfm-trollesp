@@ -9,6 +9,7 @@
 
 #include <execinfo.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -22,8 +23,15 @@ static char gTag[32] = {0};
 static int gLogFd = -1;
 static volatile int gInCrash = 0;
 
+// 优先写到 /var/mobile/Media（AFC 能直接读，电脑不用越狱/免 Frida 就能取日志）
+static const char *kMediaDir = "/var/mobile/Media/dfm-debug";
+static const char *kMediaLog = "/var/mobile/Media/dfm-debug/dfm_crash.log";
+
 static void ESPPickLogPath(void) {
+    mkdir(kMediaDir, 0755);
+
     const char *candidates[] = {
+        kMediaLog,
         "/var/mobile/Library/Caches/dfm_crash.log",
         "/tmp/dfm_crash.log",
     };
@@ -36,6 +44,32 @@ static void ESPPickLogPath(void) {
         }
     }
     gLogFd = -1;
+}
+
+// 把上一版写在 Caches 里的日志搬到 Media，方便直接 pull
+static void ESPMigrateOldLog(void) {
+    const char *oldPath = "/var/mobile/Library/Caches/dfm_crash.log";
+    FILE *in = fopen(oldPath, "r");
+    if (!in) return;
+    fseek(in, 0, SEEK_END);
+    long size = ftell(in);
+    fseek(in, 0, SEEK_SET);
+    if (size <= 0 || size > 512 * 1024) { fclose(in); return; }
+
+    int fd = open(kMediaLog, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+            ssize_t ignored = write(fd, buf, n);
+            (void)ignored;
+        }
+        const char *sep = "\n===== 以上为 Caches 里迁移过来的旧日志 =====\n";
+        ssize_t ignored2 = write(fd, sep, strlen(sep));
+        (void)ignored2;
+        close(fd);
+    }
+    fclose(in);
 }
 
 static void ESPWriteRaw(const char *text, size_t len) {
@@ -135,6 +169,7 @@ void ESPInstallCrashLogger(const char *tag) {
         strncpy(gTag, tag, sizeof(gTag) - 1);
     }
     ESPPickLogPath();
+    if (gLogFd >= 0) ESPMigrateOldLog();
 
     NSSetUncaughtExceptionHandler(&ESPUncaughtHandlerBridge);
 

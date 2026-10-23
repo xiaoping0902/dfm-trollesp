@@ -104,6 +104,7 @@ static ImFont *ESPLoadFont(void) {
     std::atomic<bool> _reinitNeeded;
     std::atomic<bool> _menuOpen;
     std::atomic<bool> _exiting;
+    bool _imguiReady;
 
     std::mutex _cfgMu;
     esp::EspSettings _settings;
@@ -185,15 +186,21 @@ static ImFont *ESPLoadFont(void) {
             _offsets = o;
         }
 
+        ESPLogStep("overlay: init begin (preview=%d)", (int)preview);
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
+        ESPLogStep("overlay: ImGui ctx=%p", (void *)ImGui::GetCurrentContext());
         ImGuiIO &io = ImGui::GetIO();
         io.IniFilename = nullptr;
         io.LogFilename = nullptr;
         io.BackendPlatformName = "DFMTrollESP";
         ESPApplyStyle();
-        ESPLoadFont();
+        ImFont *f = ESPLoadFont();
+        ESPLogStep("overlay: font=%p fonts=%d", (void *)f, io.Fonts ? io.Fonts->Fonts.Size : -1);
         ImGui_ImplMetal_Init(_device);
+        _imguiReady = (ImGui::GetCurrentContext() != nullptr && io.Fonts != nullptr &&
+                       io.Fonts->Fonts.Size > 0);
+        ESPLogStep("overlay: ready=%d", (int)_imguiReady);
 
         ESPHudSetActiveOverlay(self);
 
@@ -470,6 +477,12 @@ static bool ESPOffsetsDiffer(const esp::Offsets &a, const esp::Offsets &b) {
                                                       : (CGFloat)UIScreen.mainScreen.nativeScale;
     if (size.width < 2 || size.height < 2) return;
 
+    if (!_imguiReady || ImGui::GetCurrentContext() == nullptr) return;
+    static bool sFirstFrameLogged = false;
+    if (!sFirstFrameLogged) {
+        sFirstFrameLogged = true;
+        ESPLogStep("overlay: first frame in");
+    }
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((float)size.width, (float)size.height);
     io.DisplayFramebufferScale = ImVec2((float)scale, (float)scale);

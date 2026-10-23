@@ -29,7 +29,9 @@
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor blackColor];
 
+    ESPLogStep("preview: viewDidLoad begin");
     _preview = [[OverlayView alloc] initWithFrame:self.view.bounds preview:YES];
+    ESPLogStep("preview: OverlayView=%p", (__bridge void *)_preview);
     if (!_preview) {
         UILabel *label = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 24, 120)];
         label.numberOfLines = 0;
@@ -45,6 +47,7 @@
     _preview.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:_preview];
     [_preview startEngine];
+    ESPLogStep("preview: engine started");
 
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     [close setTitle:@"✕ 退出预览" forState:UIControlStateNormal];
@@ -325,6 +328,7 @@ static UIButton *MakeButton(NSString *title, UIColor *color, id target, SEL acti
 
 // App 内直接看 ImGui：菜单 + 调试窗口（默认都打开）
 - (void)onPreview {
+    ESPLogStep("app: onPreview tapped");
     pid_t pid = 0;
     if (!esp::FindPid(_settings.moduleName.c_str(), &pid)) {
         [self toast:@"游戏没在跑，预览里只有界面没有数据"];

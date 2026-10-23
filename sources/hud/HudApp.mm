@@ -14,6 +14,7 @@
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <notify.h>
 
 #include <cmath>
@@ -70,10 +71,11 @@
 @implementation ESPHudWindow
 + (BOOL)_isSystemWindow { return YES; }
 - (BOOL)_isWindowServerHostingManaged { return NO; }
-// 故意不用 secure window：MTKView(CAMetalLayer) 塞进 secure 窗口在部分系统上会整层不显示，
-// 代价只是截图/录屏能看到 ESP，无所谓。
-- (BOOL)_isSecure { return NO; }
-- (BOOL)_shouldCreateContextAsSecure { return NO; }
+// 对齐 TrollSpeed：secure window + secure context，这是跨进程托管能显示的前提之一
+- (BOOL)_isSecure { return YES; }
+- (BOOL)_shouldCreateContextAsSecure { return YES; }
+- (BOOL)_canBecomeKeyWindow { return YES; }
+- (BOOL)_alwaysGetsContexts { return YES; }
 // 菜单关着的时候整个窗口不吃触摸，全部穿透给游戏
 - (BOOL)_ignoresHitTest { return !ESPHudMenuVisible(); }
 @end
@@ -97,15 +99,35 @@
     self.view.backgroundColor = [UIColor clearColor];
     self.view.opaque = NO;
 
-    // 注意：悬浮层不在这里建。
-    // HUD 是 root 守护进程，MTLCreateSystemDefaultDevice() 在窗口没上屏之前经常返回 nil，
-    // 所以要等窗口 key+visible 之后再建，并且失败就重试，最后兜底到 CoreGraphics。
+    // 悬浮层在 viewDidLoad 就安排安装（不能等 viewDidAppear：窗口万一没上屏，那个回调永远不来）。
+    // Metal 在 HUD 里大概率拿不到，所以先试两次，不成直接上 CoreGraphics 兜底。
     [self startOrientationObserver];
+
+    __weak ESPHudRootViewController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+                       ESPHudRootViewController *s = weakSelf;
+                       if (s) [s installOverlayWithRetry:0];
+                   });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+                       ESPHudRootViewController *s = weakSelf;
+                       if (s && !s.overlay) {
+                           ESPLogStep("hud: 5s 还没装上，强制兜底层");
+                           [s installFallbackOverlay];
+                       }
+                   });
 }
 
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    [self installOverlayWithRetry:0];
+- (void)installFallbackOverlay {
+    if (self.overlay) return;
+    ESPFallbackOverlay *fb = [[ESPFallbackOverlay alloc] initWithFrame:self.view.bounds];
+    fb.autoresizingMask = UIViewAutoresizingNone;
+    [self.view addSubview:fb];
+    self.overlay = fb;
+    [fb startEngine];
+    [self reapplyOrientation];
+    ESPLogStep("hud: CoreGraphics 兜底层已安装");
 }
 
 - (void)installOverlayWithRetry:(int)attempt {
@@ -128,7 +150,7 @@
         return;
     }
 
-    if (attempt < 4) {
+    if (attempt < 2) {
         __weak ESPHudRootViewController *weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -139,12 +161,7 @@
     }
 
     ESPLogStep("hud: Metal 不可用 -> CoreGraphics 兜底");
-    ESPFallbackOverlay *fb = [[ESPFallbackOverlay alloc] initWithFrame:self.view.bounds];
-    fb.autoresizingMask = UIViewAutoresizingNone;
-    [self.view addSubview:fb];
-    self.overlay = fb;
-    [fb startEngine];
-    [self reapplyOrientation];
+    [self installFallbackOverlay];
 }
 
 - (void)reapplyOrientation {
@@ -314,16 +331,97 @@ static void ESPSetupEventDispatcher(UIApplication *app) {
     return YES;
 }
 
+static id gOwnedCAContext = nil;      // 自造的 context 要保活
+
+static unsigned ESPWindowContextId(UIWindow *w) {
+    SEL sel = NSSelectorFromString(@"_contextId");
+    if (![w respondsToSelector:sel]) return 0;
+    return ((unsigned (*)(id, SEL))objc_msgSend)(w, sel);
+}
+
+// 按照对「查找」复刻版的勘探结论：posix_spawn 出来的进程常常没有 CAContext，
+// 自己造一个再 _setBoundContext: 绑到窗口上，看能不能救回来。
+static BOOL ESPTryBindOwnContext(UIWindow *w) {
+    Class CA = objc_getClass("CAContext");
+    if (!CA) {
+        ESPLogStep("hud: 没有 CAContext 类");
+        return NO;
+    }
+
+    id ctx = nil;
+    SEL initWithOptions = NSSelectorFromString(@"initWithOptions:localContext:");
+    if ([CA instancesRespondToSelector:initWithOptions]) {
+        ctx = ((id (*)(id, SEL, id, BOOL))objc_msgSend)([CA alloc], initWithOptions, @{}, YES);
+        ESPLogStep("hud: CAContext initWithOptions:localContext: -> %p", (void *)ctx);
+    }
+    if (!ctx) {
+        SEL initRemote = NSSelectorFromString(@"initRemoteWithOptions:");
+        if ([CA instancesRespondToSelector:initRemote]) {
+            ctx = ((id (*)(id, SEL, id))objc_msgSend)([CA alloc], initRemote, @{});
+            ESPLogStep("hud: CAContext initRemoteWithOptions: -> %p", (void *)ctx);
+        }
+    }
+    if (!ctx) {
+        ESPLogStep("hud: CAContext 造不出来");
+        return NO;
+    }
+    gOwnedCAContext = ctx;
+
+    SEL setLayer = NSSelectorFromString(@"setLayer:");
+    if ([ctx respondsToSelector:setLayer]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(ctx, setLayer, w.layer);
+    }
+    SEL setLevel = NSSelectorFromString(@"setLevel:");
+    if ([ctx respondsToSelector:setLevel]) {
+        ((void (*)(id, SEL, double))objc_msgSend)(ctx, setLevel, w.windowLevel);
+    }
+    SEL setSecure = NSSelectorFromString(@"setSecure:");
+    if ([ctx respondsToSelector:setSecure]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(ctx, setSecure, NO);
+    }
+    SEL bind = NSSelectorFromString(@"_setBoundContext:");
+    if ([w respondsToSelector:bind]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(w, bind, ctx);
+        ESPLogStep("hud: 已调用 _setBoundContext:");
+    } else {
+        ESPLogStep("hud: 窗口没有 _setBoundContext:");
+    }
+    SEL keep = NSSelectorFromString(@"setKeepContextInBackground:");
+    if ([w respondsToSelector:keep]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(w, keep, YES);
+    }
+
+    return ESPWindowContextId(w) != 0;
+}
+
 - (void)registerWithSpringBoard {
+    UIApplication *app = [UIApplication sharedApplication];
     Class hostingClass = hud::api().accessibilityWindowHostingClass;
+
+    unsigned contextId = ESPWindowContextId(_hudWindow);
+    double level = _hudWindow.windowLevel;
+    UIWindowScene *ws = nil;
+    if ([_hudWindow respondsToSelector:@selector(windowScene)]) ws = _hudWindow.windowScene;
+
+    ESPLogStep("hud: 诊断 appState=%ld scenes=%lu windows=%lu level=%.0f hidden=%d ctx=0x%X scene=%s",
+               (long)app.applicationState, (unsigned long)app.connectedScenes.count,
+               (unsigned long)app.windows.count, level, (int)_hudWindow.isHidden, contextId,
+               ws ? "yes" : "nil");
+
+    if (contextId == 0) {
+        ESPLogStep("hud: 窗口没有 CAContext，尝试自己造一个");
+        ESPTryBindOwnContext(_hudWindow);
+        contextId = ESPWindowContextId(_hudWindow);
+        ESPLogStep("hud: 自造之后 ctx=0x%X", contextId);
+    }
+
     if (!hostingClass) {
-        NSLog(@"[esp] 没有 SBSAccessibilityWindowHostingController，窗口盖不到游戏上");
+        ESPLogStep("hud: 没有 SBSAccessibilityWindowHostingController");
         return;
     }
 
     _windowHostingController = [[hostingClass alloc] init];
-    unsigned contextId = [_hudWindow _contextId];
-    double level = _hudWindow.windowLevel;
+    ESPLogStep("hud: hostingController=%p", (void *)_windowHostingController);
 
     @try {
         NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:"v@:Id"];
@@ -333,9 +431,13 @@ static void ESPSetupEventDispatcher(UIApplication *app) {
         [invocation setArgument:(void *)&contextId atIndex:2];
         [invocation setArgument:(void *)&level atIndex:3];
         [invocation invoke];
-        NSLog(@"[esp] window hosting registered (ctx=%u level=%.0f)", contextId, level);
+        ESPLogStep("hud: registerWindowWithContextID(%u, %.0f) 已调用", contextId, level);
     } @catch (NSException *e) {
-        NSLog(@"[esp] registerWindow 失败: %@", e);
+        ESPLogStep("hud: registerWindow 抛异常 %s", [[e description] UTF8String]);
+    }
+
+    if (contextId == 0) {
+        ESPLogStep("hud: ★ ctx 仍然是 0 —— 这一版窗口注定不显示，需要走进程内注入方案");
     }
 }
 
