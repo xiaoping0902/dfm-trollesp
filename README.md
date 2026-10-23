@@ -1,4 +1,4 @@
-﻿# DFM TrollESP — 三角洲行动 UE4 骨骼 ESP（TrollStore 直装）
+# DFM TrollESP — 三角洲行动 UE4 骨骼 ESP（TrollStore 直装）
 
 > 目标：**不越狱、不改游戏包、不注入 dylib**，用 TrollStore 装一个 App，切回游戏就能看到人物骨骼透视。
 > 实现路线：`root 权限 HUD 进程` + `task_for_pid 只读内存` + `Metal/ImGui 跨 App 悬浮窗`。
@@ -318,6 +318,27 @@ make -f Makefile.dylib
 
 ---
 
+## 8.4 HUD 没层 / 秒退的真实原因（实测）
+
+iPad14,4 / iPadOS 16.1 上实测到两件硬事实：
+
+1. **HUD 是 root 守护进程，`MTLCreateSystemDefaultDevice()` 返回 nil**。
+   ```
+   frida: Module.load(Metal.framework) → MTLCreateSystemDefaultDevice() -> 0x0
+   ```
+   所以 ImGui + Metal 这条路在 **HUD 进程里根本走不通**（不是时序问题，重试也没用）。
+
+2. 之前那句"兜底" `MTLCopyAllDevices()` **在 iOS 上会直接 SIGSEGV**（Chromium 的 iOS 移植也注明
+   “Do not call MTLCopyAllDevices as there is only the default system device on iOS”），
+   于是窗口还没建就崩了 → 表现就是"UI 没有那一层"。
+
+对应修法：
+
+- 删掉 `MTLCopyAllDevices`；
+- 悬浮层改成**窗口上屏后再建**，Metal 拿不到就重试 4 次（0.8s 间隔）；
+- 仍然拿不到 → 自动切 **`ESPFallbackOverlay`**：CoreGraphics 画骨骼/方框/距离 + UIKit 菜单 + 等宽
+  调试文本（pid/基址/偏移/Actor/Tick/骨骼表），**不依赖 Metal**，保证一定有层；
+- 想要 HUD 里也有完整 ImGui → 走注入版（`Makefile.dylib` + TrollFools），游戏进程本身有 Metal。
 ## 8.5 闪退怎么查（重要）
 
 TrollStore 上"点开就秒退、连界面都看不到"，通常是**进程在 exec 阶段就被系统杀了**（AMFI/签名问题），
