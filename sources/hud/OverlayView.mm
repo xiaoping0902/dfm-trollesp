@@ -221,7 +221,11 @@ static ImFont *ESPLoadFont(void) {
         _notifyToken = -1;
     }
     ESPHudClearActiveOverlay(self);
-    ImGui_ImplMetal_Shutdown();
+    // 只有真初始化过 Metal 后端才 Shutdown：拿不到设备时 init 会提前 return nil，
+    // 这时无条件 Shutdown 会崩在 ImGui_ImplMetal_Shutdown（真机已确认 SIGSEGV）。
+    if (_imguiReady) {
+        ImGui_ImplMetal_Shutdown();
+    }
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
 }
 

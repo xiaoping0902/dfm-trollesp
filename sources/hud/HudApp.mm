@@ -304,6 +304,9 @@ static void ESPSetupEventDispatcher(UIApplication *app) {
 #pragma mark - HUD 代理
 
 @interface ESPHudApplicationDelegate : UIResponder <UIApplicationDelegate>
+// 必须显式声明：UIApplicationDelegate 里的 window 是 @optional 的，不声明就没有 setWindow:，
+// self.window = ... 会抛 unrecognized selector 直接 abort（已在真机日志确认）。
+@property (nonatomic, strong) UIWindow *window;
 @end
 
 @implementation ESPHudApplicationDelegate {

@@ -14,6 +14,7 @@
 
 #import "HudControl.h"
 #import "OverlayView.h"
+#import "FallbackOverlay.h"
 #include "crashlog.h"
 #include "buildtag.h"
 #include "esp_core.hpp"
@@ -24,6 +25,7 @@
 
 @implementation ESPPreviewViewController {
     OverlayView *_preview;
+    ESPFallbackOverlay *_fallback;
 }
 
 - (void)viewDidLoad {
@@ -33,22 +35,24 @@
     ESPLogStep("preview: viewDidLoad begin");
     _preview = [[OverlayView alloc] initWithFrame:self.view.bounds preview:YES];
     ESPLogStep("preview: OverlayView=%p", (__bridge void *)_preview);
-    if (!_preview) {
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 24, 120)];
-        label.numberOfLines = 0;
-        label.textColor = [UIColor whiteColor];
-        label.font = [UIFont systemFontOfSize:13];
-        label.text = @"这台设备/这个进程拿不到 Metal 设备，预览不可用。\n"
-                     @"真机 TrollStore 安装一般没问题，检查 entitlements 里的 "
-                     @"com.apple.QuartzCore.displayable-context。";
-        [self.view addSubview:label];
-        return;
-    }
 
-    _preview.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.view addSubview:_preview];
-    [_preview startEngine];
-    ESPLogStep("preview: engine started");
+    if (!_preview) {
+        // 这台机器（iPad14,4 / iOS 16.1）App 进程也拿不到 Metal 设备，
+        // 所以预览改用 CoreGraphics/UIKit 兜底层，功能一样：球 + 菜单 + 调试数据。
+        ESPLogStep("preview: Metal 不可用，改用兜底层");
+        ESPFallbackOverlay *fb = [[ESPFallbackOverlay alloc] initWithFrame:self.view.bounds];
+        fb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.view addSubview:fb];
+        [fb startEngine];
+        [fb setMenuOpen:YES];
+        _fallback = fb;
+        ESPLogStep("preview: fallback ready");
+    } else {
+        _preview.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.view addSubview:_preview];
+        [_preview startEngine];
+        ESPLogStep("preview: engine started");
+    }
 
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     [close setTitle:@"✕ 退出预览" forState:UIControlStateNormal];
@@ -63,6 +67,7 @@
 
 - (void)onClose {
     [_preview stopEngine];
+    [_fallback stopEngine];
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 
