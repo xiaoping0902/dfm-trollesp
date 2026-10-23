@@ -15,6 +15,7 @@
 #import "HudControl.h"
 #import "OverlayView.h"
 #include "crashlog.h"
+#include "buildtag.h"
 #include "esp_core.hpp"
 
 // App 内的调试预览：不走 HUD、不需要悬浮窗，直接在 App 窗口里跑同一套 ImGui 界面
@@ -239,7 +240,7 @@ static UIButton *MakeButton(NSString *title, UIColor *color, id target, SEL acti
         @"如果哪天真被 task_for_pid 拦住，菜单里会有明确报错，\n"
         @"可以改用注入版（同一套核心代码，见 README）。")];
 
-    [_stack addArrangedSubview:MakeBody([NSString stringWithFormat:@"设置文件：%s", esp::SettingsPlistPath()])];
+    [_stack addArrangedSubview:MakeBody([NSString stringWithFormat:@"版本：%s\n设置文件：%s", ESP_BUILD_TAG, esp::SettingsPlistPath()])];
 }
 
 - (UISwitch *)addSwitchRow:(NSString *)title action:(SEL)action {

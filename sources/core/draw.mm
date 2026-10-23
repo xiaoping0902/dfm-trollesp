@@ -13,6 +13,7 @@
 #include <string>
 
 #include "imgui.h"
+#include "buildtag.h"
 
 namespace esp {
 
@@ -204,7 +205,7 @@ MenuResult DrawMenu(EspSettings &s, Offsets &o, const Snapshot &snap, const std:
     ImGui::SetNextWindowSize(ImVec2(470, 620), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(60, 80), ImGuiCond_FirstUseEver);
 
-    if (!ImGui::Begin(u8"三角洲 TrollESP  ·  TrollStore 直装", nullptr,
+    if (!ImGui::Begin(u8"三角洲 TrollESP  ·  " ESP_BUILD_TAG, nullptr,
                       ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return r;

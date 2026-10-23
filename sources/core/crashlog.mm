@@ -4,6 +4,7 @@
 //
 
 #import "crashlog.h"
+#include "buildtag.h"
 
 #import <Foundation/Foundation.h>
 
@@ -178,7 +179,7 @@ void ESPInstallCrashLogger(const char *tag) {
         signal(s, ESPCrashHandler);
     }
 
-    ESPLogStep("crash logger installed (pid=%d)", getpid());
+    ESPLogStep("=== BUILD %s === crash logger installed (pid=%d)", ESP_BUILD_TAG, getpid());
 }
 
 const char *ESPCrashLogPath(void) {

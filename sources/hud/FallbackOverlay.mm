@@ -24,6 +24,7 @@
 #include "esp_core.hpp"
 #include "debug.hpp"
 #include "crashlog.h"
+#include "buildtag.h"
 #include "HudBridge.h"
 
 @implementation ESPFallbackOverlay {
@@ -409,7 +410,7 @@
     [self addSubview:_panel];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(14, 10, 300, 22)];
-    title.text = @"三角洲 TrollESP（兼容模式：无 Metal）";
+    title.text = [NSString stringWithFormat:@"三角洲 TrollESP  %s", ESP_BUILD_TAG];
     title.font = [UIFont boldSystemFontOfSize:13];
     title.textColor = [UIColor whiteColor];
     [_panel addSubview:title];
