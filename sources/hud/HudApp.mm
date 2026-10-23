@@ -395,7 +395,7 @@ int ESPRunHUD(void) {
             hud::api().UIApplicationInstantiateSingleton(objc_getClass("ESPHudApplication"));
         }
         UIApplication *app = [UIApplication sharedApplication];
-        ESPLogStep("hud: UIApplication=%p delegate setup", (void *)app);
+        ESPLogStep("hud: UIApplication ready, delegate setup");
         ESPSetupEventDispatcher(app);
 
         static ESPHudApplicationDelegate *delegate = nil;
