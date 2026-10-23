@@ -3,7 +3,7 @@
 //  DFM TrollESP —— 进程/内存访问层
 //
 //  外部模式（TrollStore 直装）：
-//      task_for_pid(游戏 pid) -> mach_vm_read_overwrite
+//      task_for_pid(游戏 pid) -> vm_read_overwrite
 //      需要 entitlements: task_for_pid-allow / platform-application /
 //      com.apple.private.security.no-sandbox，且进程以 root 运行（HUD 模式）。
 //
@@ -12,7 +12,7 @@
 //
 //  这里刻意不用 libproc.h（iPhoneOS SDK 里没有这个头）：
 //    * 找 pid      -> sysctl(KERN_PROC_ALL) + kinfo_proc.p_comm
-//    * 找镜像基址  -> mach_vm_region_recurse 遍历 + 读 Mach-O 头，filetype == MH_EXECUTE
+//    * 找镜像基址  -> vm_region_recurse_64 遍历 + 读 Mach-O 头，filetype == MH_EXECUTE
 //
 
 #include "esp_core.hpp"
@@ -30,7 +30,7 @@
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
+#include <mach/vm_map.h>
 #include <mach/vm_region.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
@@ -97,10 +97,11 @@ bool Reader::Read(uint64_t addr, void* out, size_t len) const {
     if (task_ == MACH_PORT_NULL || out == nullptr || len == 0) return false;
     if (addr == 0) return false;
 
-    mach_vm_size_t got = 0;
-    kern_return_t kr = mach_vm_read_overwrite(task_, static_cast<mach_vm_address_t>(addr),
-                                              static_cast<mach_vm_size_t>(len),
-                                              reinterpret_cast<mach_vm_address_t>(out), &got);
+    vm_size_t got = 0;
+    kern_return_t kr = vm_read_overwrite(reinterpret_cast<vm_map_t>(task_),
+                                         static_cast<vm_address_t>(addr),
+                                         static_cast<vm_size_t>(len),
+                                         reinterpret_cast<vm_address_t>(out), &got);
     lastError = kr;
     return kr == KERN_SUCCESS && got == len;
 }
@@ -196,12 +197,12 @@ bool FindMainImageBase(pid_t pid, const char* exeName, uint64_t* outBase) {
     for (int guard = 0; guard < 200000; ++guard) {
         vm_region_submap_info_data_64_t info;
         mach_msg_type_number_t infoCount = VM_REGION_SUBMAP_INFO_COUNT_64;
-        mach_vm_address_t regionAddr = addr;
-        mach_vm_size_t regionSize = 0;
+        vm_address_t regionAddr = static_cast<vm_address_t>(addr);
+        vm_size_t regionSize = 0;
         natural_t depth = 0;
 
-        kern_return_t kr = mach_vm_region_recurse(
-            task, &regionAddr, &regionSize, &depth,
+        kern_return_t kr = vm_region_recurse_64(
+            reinterpret_cast<vm_map_t>(task), &regionAddr, &regionSize, &depth,
             reinterpret_cast<vm_region_recurse_info_t>(&info), &infoCount);
         if (kr != KERN_SUCCESS || regionSize == 0) break;
 
@@ -209,14 +210,14 @@ bool FindMainImageBase(pid_t pid, const char* exeName, uint64_t* outBase) {
         if (executable && regionAddr != 0) {
             // 直接读目标内存里的 Mach-O 头（读自己时用 memcpy 更快，这里统一用 mach API）
             struct mach_header_64 header;
-            mach_vm_size_t got = 0;
+            vm_size_t got = 0;
             uint32_t magic = 0;
-            kr = mach_vm_read_overwrite(task, regionAddr, 4,
-                                        reinterpret_cast<mach_vm_address_t>(&magic), &got);
+            kr = vm_read_overwrite(reinterpret_cast<vm_map_t>(task), regionAddr, 4,
+                                   reinterpret_cast<vm_address_t>(&magic), &got);
             if (kr == KERN_SUCCESS && got == 4 && magic == MH_MAGIC_64) {
                 got = 0;
-                kr = mach_vm_read_overwrite(task, regionAddr, sizeof(header),
-                                            reinterpret_cast<mach_vm_address_t>(&header), &got);
+                kr = vm_read_overwrite(reinterpret_cast<vm_map_t>(task), regionAddr, sizeof(header),
+                                       reinterpret_cast<vm_address_t>(&header), &got);
                 if (kr == KERN_SUCCESS && got == sizeof(header) &&
                     header.filetype == MH_EXECUTE) {
                     *outBase = static_cast<uint64_t>(regionAddr);
