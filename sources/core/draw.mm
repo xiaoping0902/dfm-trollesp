@@ -74,7 +74,8 @@ void DrawESP(ImDrawList *dl, const Snapshot &snap, const EspSettings &s, ImVec2 
         }
 
         if (onScreen < 3) continue;
-        if (s.requireVisible && (maxX < 0.f || minX > W || maxY < 0.f || minY > H)) continue;
+        // 整块都在屏幕外就不画（等价于旧版的 requireVisible）
+        if (maxX < 0.f || minX > W || maxY < 0.f || minY > H) continue;
 
         // ---- 2D 方框 ----
         float boxTop = minY;
@@ -278,7 +279,7 @@ MenuResult DrawMenu(EspSettings &s, Offsets &o, const Snapshot &snap, const std:
         ImGui::InputText(u8"骨骼数组", gBuf.boneArray, sizeof(gBuf.boneArray));
         ImGui::InputText(u8"ComponentToWorld", gBuf.componentToWorld, sizeof(gBuf.componentToWorld));
         HelpMarker(u8"ComponentToWorld 填 0 表示自动探测；骨骼数组默认 0xA18"
-                   u"（CachedComponentSpaceTransforms），失败时试 0xA08。");
+                   u8"（CachedComponentSpaceTransforms），失败时试 0xA08。");
 
         if (ImGui::Button(u8"应用偏移 Apply")) {
             o.rvaGObjects = ParseHex(gBuf.gobjects, o.rvaGObjects);
