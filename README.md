@@ -146,9 +146,27 @@ make package FINALPACKAGE=1
 
 > 一定要用 `ldid` 签，不要用 `codesign`：TrollStore 走 CoreTrust，`ldid` 才能把 `task_for_pid-allow` 这类权限原样写进签名。
 
-### 4.2 云端（没有 Mac）
+### 4.2 云端（没有 Mac，推荐）
 
-把工程推到 GitHub，`Actions → build-tipa → Run workflow`，产物在 artifact 里（`.github/workflows/build.yml` 已配好，会装 theos + iOS SDK）。
+跟你 `iOS打包演示` 那套一样，用 **GitHub 的 macOS 云机器**：
+
+```
+仓库：https://github.com/xiaoping0902/dfm-trollesp   （public，Actions 免费额度）
+Actions → build-tipa → 最新一次 run → Artifacts → DFMTrollESP-tipa
+```
+
+工程里已经有：
+- `project.yml`（XcodeGen 描述文件，不用手维护 `.xcodeproj`）
+- `.github/workflows/build.yml`（`macos-15` + Xcode 16 → xcodebuild 无签名编译 → `ldid` 签 entitlements → 打 `.tipa` → 上传 artifact）
+- `tools/package_from_xcode.sh`（本地也能用：`sh tools/package_from_xcode.sh <xxx.app> out.tipa`）
+
+改代码后只要 `git push`，云端自动重编，2~3 分钟出新 `.tipa`。
+
+> 踩过的两个坑（已写进代码）：
+> 1. iPhoneOS SDK **没有 `libproc.h`**，所以进程枚举用 `sysctl(KERN_PROC_ALL)`、镜像基址用
+>    `vm_region_recurse_64` + 读 Mach-O 头判 `MH_EXECUTE`；
+> 2. iPhoneOS SDK 的 `<mach/mach_vm.h>` 是"unsupported"桩，读内存要用 `vm_read_overwrite`。
+> 另外 XcodeGen 2.46 生成的是 objectVersion 77，**必须用 Xcode 16（macos-15 runner）** 才打得开。
 
 ---
 
@@ -185,11 +203,37 @@ ok=1 actors=8421 chars=27 boneFail=0 draw=27 cam=1
 
 `draw=27 cam=1` 说明整条链路通了；哪一行报错就照第 8 节排错表处理。
 
-### 5.2 注入版（可选，兜底）
+### 5.2 调试窗口（骨骼表 / 射线 / 引擎状态）
+
+**打开方式有两条：**
+
+1. **游戏里（HUD）**：三指双击 → 菜单 → 勾上「调试窗口 Debug」。
+   HUD 起来后 **3 秒会自动把菜单 + 调试窗口弹出来**，45 秒内没人碰就自动收起，不会一直挡着游戏。
+2. **App 里预览**：主界面点「调试预览 Preview」，直接在全屏窗口里跑同一套 ImGui（菜单和调试窗口默认打开），
+   不用开 HUD、不用悬浮窗。数据是真的（App 进程自己 `task_for_pid` 读游戏）。
+
+**调试窗口里有什么：**
+
+| 区块 | 内容 |
+|---|---|
+| 引擎 / 连接 | pid、模块基址、GObjects、GNames、GWorld、UObject 布局（Class/Name 偏移）、FName 池（blocks/hdr/scale）、ComponentToWorld 偏移、骨骼数组偏移、UObject 总数 |
+| 采样 / 摄像机 | Actor 数、角色数、骨骼采样失败数、**单次 Tick 耗时(ms)**、相机位置/旋转/FOV/视口 |
+| 调试目标 | 下拉选第几个角色：actor 地址、mesh 地址、类名、SkeletalMesh 地址、骨骼总数/已映射数 |
+| 骨骼表 | 每根语义骨骼：**槽位名 / 真实骨名 / 骨骼下标 idx / 世界 X,Y,Z / 屏幕 X,Y / depth** |
+| 骨架名单 | 整套骨骼名（按 index 顺序），一眼看出是 `Bip001 L Thigh` 还是 `upperarm_l` |
+| 叠加绘制 | 「骨骼标号」屏幕上每根骨骼打 `Head(6)` 这种标签；「骨骼射线」屏幕中心到每根骨骼的视线；「准心射线」相机前向 40m 的 3D 射线 |
+
+调骨骼的典型用法：
+1. 看「骨骼表」右侧 depth 是不是正数、屏幕 XY 是否落在画面内 → 判断 W2C 对不对；
+2. 屏幕 XY 对了但形状歪 → 看「骨骼数组偏移」是不是 `0xA18`（试 `0xA08`）；
+3. 世界坐标在飘 / 整块糊在一起 → 看「ComponentToWorld」选的候选对不对（换 `+0x1B0` / `+0x1A0` 试）；
+4. 骨名对不上 → 看「骨架名单」，在 `SlotFromBoneName()` 里补关键字。
+
+### 5.3 注入版（可选，兜底）
 
 ```bash
 make -f Makefile.dylib
-# 产物 / .theos/obj/dfmesp.dylib
+# 产物 .theos/obj/dfmesp.dylib
 ```
 把它丢给 **TrollFools** 注进 `DeltaForceClient`：内存访问变成"读自己"，逻辑一行不改
 （核心代码用 `-DESP_INTERNAL` 编译，`FindPid`/`FindMainImageBase`/`Reader::Attach` 自动走进程内分支）。
