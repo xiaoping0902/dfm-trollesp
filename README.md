@@ -1,4 +1,4 @@
-# DFM TrollESP — 三角洲行动 UE4 骨骼 ESP（TrollStore 直装）
+﻿# DFM TrollESP — 三角洲行动 UE4 骨骼 ESP（TrollStore 直装）
 
 > 目标：**不越狱、不改游戏包、不注入 dylib**，用 TrollStore 装一个 App，切回游戏就能看到人物骨骼透视。
 > 实现路线：`root 权限 HUD 进程` + `task_for_pid 只读内存` + `Metal/ImGui 跨 App 悬浮窗`。
@@ -182,6 +182,15 @@ Actions → build-tipa → 最新一次 run → Artifacts → DFMTrollESP-tipa
 
 设置存在 `/var/mobile/Library/Preferences/com.dfm.trollesp.plist`，App 和 HUD 两个进程靠它 + `notify_post` 同步。
 
+### 5.0 悬浮球（球 ⇄ 菜单）
+
+- 菜单收起后，屏幕上常驻一个绿球（写着 ESP），**点一下球** → 菜单 + 调试窗口展开；
+  菜单里点「● 收起成球 Collapse」或「关闭菜单 Close」→ 又缩回球。
+- 球可以**拖动**（位置会记进 plist，下次还在那儿）；大小在菜单里「球大小」调，开关是「悬浮球 Ball」。
+- 球是靠 HID 回调自己算坐标的：菜单关着的时候窗口仍然全穿透（_ignoresHitTest = YES），
+  只有点在球半径内才被我们吃掉，所以走路/开镜不受影响。
+  代价：点球那一下游戏也会收到一次真实触摸（iOS 层面拦不住），菜单一开就正常了。
+- 三指双击 仍然可以开/关菜单，两条路都留着。
 ### 5.1 先点一次「诊断 Diagnose」
 
 第一次用建议先别开 HUD：在 App 里点 **诊断 Diagnose**，它会在 App 进程里跑一遍完整链路
@@ -308,6 +317,27 @@ make -f Makefile.dylib
 | 菜单点不动 | HID → 合成触摸这条链失败（`[esp]` 日志 + `AccessibilityUtilities` 是否加载）；兜底：在 App 里改开关（App 写 plist → HUD 收 notify 重载） |
 
 ---
+
+## 8.5 闪退怎么查（重要）
+
+TrollStore 上"点开就秒退、连界面都看不到"，通常是**进程在 exec 阶段就被系统杀了**（AMFI/签名问题），
+不是代码里崩的。这一版做了两件事：
+
+1. **entitlements 瘦身**：删掉了 `com.apple.private.cs.debugger`、`dynamic-codesigning`、
+   `run-unsigned-code`、`QuartzCore.secure-mode`（前几个很容易让 AMFI 直接 kill 进程，
+   表现就是"秒闪退且没有任何日志"）。现在只留跑起来必须的那一组。
+2. **崩溃日志 + 启动面包屑**：每个启动阶段往 `/var/mobile/Library/Caches/dfm_crash.log` 写一行；
+   未捕获异常和 SIGSEGV/SIGABRT/SIGBUS/SIGILL/SIGTRAP/SIGFPE 会写 backtrace。
+
+看日志的三条路：
+
+- App 里点 **「崩溃日志 Crash log」**（能进界面就用这个，读的是同一个文件）；
+- Filza / TrollStore 的文件管理打开 `/var/mobile/Library/Caches/dfm_crash.log`；
+- 电脑上用爱思/SSH 把这个文件导出来。
+
+如果**日志文件根本没被创建**，说明进程在 `main()` 之前就被杀了 → 基本是签名/entitlements 问题，
+把 `ldid -e` 的输出发我，我按机型和 iOS 版本再裁一次。
+
 
 ## 9. 如果 `task_for_pid` 被拦（备选路线）
 
