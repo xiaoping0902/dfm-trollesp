@@ -30,6 +30,7 @@
 - (UIEvent *)_touchesEvent;
 - (void)_accessibilityInit;
 - (void)__completeAndRunAsPlugin;
+- (void)_run;
 - (void)terminateWithSuccess;
 @end
 
@@ -267,16 +268,16 @@ static void ESPSetupEventDispatcher(UIApplication *app) {
     }
 
     _windowHostingController = [[hostingClass alloc] init];
-    const unsigned contextId = [_hudWindow _contextId];
-    const double level = _hudWindow.windowLevel;
+    unsigned contextId = [_hudWindow _contextId];
+    double level = _hudWindow.windowLevel;
 
     @try {
         NSMethodSignature *signature = [NSMethodSignature signatureWithObjCTypes:"v@:Id"];
         NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
         [invocation setTarget:_windowHostingController];
         [invocation setSelector:NSSelectorFromString(@"registerWindowWithContextID:atLevel:")];
-        [invocation setArgument:&contextId atIndex:2];
-        [invocation setArgument:&level atIndex:3];
+        [invocation setArgument:(void *)&contextId atIndex:2];
+        [invocation setArgument:(void *)&level atIndex:3];
         [invocation invoke];
         NSLog(@"[esp] window hosting registered (ctx=%u level=%.0f)", contextId, level);
     } @catch (NSException *e) {
