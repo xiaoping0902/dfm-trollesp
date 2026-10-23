@@ -233,6 +233,8 @@ MenuResult DrawMenu(EspSettings &s, Offsets &o, const Snapshot &snap, const std:
     if (ImGui::Button(u8"保存 Save")) r.save = true;
     ImGui::SameLine();
     if (ImGui::Button(u8"关闭菜单 Close")) r.close = true;
+    ImGui::SameLine();
+    if (ImGui::Button(u8"● 收起成球 Collapse")) r.collapse = true;
 
     ImGui::Separator();
 
@@ -267,6 +269,11 @@ MenuResult DrawMenu(EspSettings &s, Offsets &o, const Snapshot &snap, const std:
     ImGui::ColorEdit4(u8"准心颜色", s.colorSnapline);
 
     ImGui::SliderInt(u8"采样频率 Hz", &s.sampleHz, 15, 120);
+
+    ImGui::Checkbox(u8"悬浮球 Ball", &s.showBall);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(160);
+    ImGui::SliderFloat(u8"球大小", &s.ballRadius, 16.f, 56.f, "%.0f");
     o.maxDistance = s.maxDistance;
 
     if (ImGui::CollapsingHeader(u8"偏移 / 换游戏适配")) {

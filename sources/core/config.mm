@@ -86,6 +86,10 @@ bool esp::LoadSettings(EspSettings &s, Offsets &o) {
         s.textScale      = GetFloat(d, @"textScale", s.textScale);
         s.sampleHz       = GetInt(d, @"sampleHz", s.sampleHz);
         s.verboseLog     = GetBool(d, @"verboseLog", s.verboseLog);
+        s.showBall       = GetBool(d, @"showBall", s.showBall);
+        s.ballX          = GetFloat(d, @"ballX", s.ballX);
+        s.ballY          = GetFloat(d, @"ballY", s.ballY);
+        s.ballRadius     = GetFloat(d, @"ballRadius", s.ballRadius);
 
         GetColor(d, @"colorSkeleton", s.colorSkeleton);
         GetColor(d, @"colorBox", s.colorBox);
@@ -128,6 +132,10 @@ void esp::SaveSettings(const EspSettings &s, const Offsets &o) {
         d[@"textScale"]      = @(s.textScale);
         d[@"sampleHz"]       = @(s.sampleHz);
         d[@"verboseLog"]     = @(s.verboseLog);
+        d[@"showBall"]       = @(s.showBall);
+        d[@"ballX"]          = @(s.ballX);
+        d[@"ballY"]          = @(s.ballY);
+        d[@"ballRadius"]     = @(s.ballRadius);
 
         d[@"colorSkeleton"]  = ColorString(s.colorSkeleton);
         d[@"colorBox"]       = ColorString(s.colorBox);

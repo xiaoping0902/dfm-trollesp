@@ -5,24 +5,16 @@
 	<key>application-identifier</key>
 	<string>com.dfm.trollesp</string>
 
-	<!-- TrollStore / CoreTrust 才能给的权限，普通签名会被 AMFI 拒绝 -->
+	<!-- TrollStore / CoreTrust 才能给的权限 -->
 	<key>platform-application</key>
 	<true/>
 	<key>com.apple.private.security.no-sandbox</key>
 	<true/>
-	<key>com.apple.private.security.storage.AppDataContainers</key>
-	<true/>
-	<key>get-task-allow</key>
-	<true/>
-	<key>run-unsigned-code</key>
-	<true/>
-	<key>dynamic-codesigning</key>
-	<true/>
 
-	<!-- 读游戏进程内存的关键 -->
+	<!-- 读游戏进程内存 -->
 	<key>task_for_pid-allow</key>
 	<true/>
-	<key>com.apple.private.cs.debugger</key>
+	<key>get-task-allow</key>
 	<true/>
 
 	<!-- 以 root 身份 spawn 自己的 HUD 进程 -->
@@ -30,35 +22,25 @@
 	<true/>
 	<key>com.apple.private.memorystatus</key>
 	<true/>
-	<key>com.apple.private.kernel.jetsam</key>
-	<true/>
 
-	<!-- 跨 App 悬浮窗 -->
+	<!-- 跨 App 悬浮窗 + Metal 可绘制上下文 -->
 	<key>com.apple.springboard.accessibility-window-hosting</key>
-	<true/>
-	<key>com.apple.springboard.CFUserNotification</key>
-	<true/>
-	<key>com.apple.springboard.appbackgroundstyle</key>
 	<true/>
 	<key>com.apple.backboard.client</key>
 	<true/>
 	<key>com.apple.QuartzCore.displayable-context</key>
 	<true/>
-	<key>com.apple.QuartzCore.secure-mode</key>
-	<true/>
 
-	<!-- 直接拿 HID 触摸事件 -->
+	<!-- 直接拿 HID 触摸事件（悬浮球/菜单点击靠它） -->
 	<key>com.apple.private.hid.client.event-dispatch</key>
 	<true/>
-	<key>com.apple.private.hid.client.event-filter</key>
-	<true/>
 	<key>com.apple.private.hid.client.event-monitor</key>
+	<true/>
+	<key>com.apple.private.hid.client.event-filter</key>
 	<true/>
 	<key>com.apple.private.hid.client.service-protected</key>
 	<true/>
 	<key>com.apple.private.hid.manager.client</key>
-	<true/>
-	<key>com.apple.private.allow-background-haptics</key>
 	<true/>
 
 	<key>file-read-data</key>

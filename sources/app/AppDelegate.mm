@@ -7,12 +7,14 @@
 #import <objc/runtime.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <unistd.h>
 
 #import "HudControl.h"
 #import "OverlayView.h"
+#include "crashlog.h"
 #include "esp_core.hpp"
 
 // App 内的调试预览：不走 HUD、不需要悬浮窗，直接在 App 窗口里跑同一套 ImGui 界面
@@ -160,8 +162,11 @@ static UIButton *MakeButton(NSString *title, UIColor *color, id target, SEL acti
         [_stack.widthAnchor constraintEqualToAnchor:_scrollView.widthAnchor constant:-36],
     ]];
 
+    ESPLogStep("app: rootVC viewDidLoad begin");
     [self buildUI];
+    ESPLogStep("app: buildUI ok");
     [self reloadSettings];
+    ESPLogStep("app: settings loaded, hudRunning=%d", ESPHudIsRunning() ? 1 : 0);
     [self startRefreshTimer];
 }
 
@@ -198,6 +203,11 @@ static UIButton *MakeButton(NSString *title, UIColor *color, id target, SEL acti
                                 [UIColor colorWithRed:0.20 green:0.38 blue:0.52 alpha:1],
                                 self, @selector(onPreview));
     [_stack addArrangedSubview:_previewButton];
+
+    UIButton *crashButton = MakeButton(@"崩溃日志 Crash log（闪退后点这里看）",
+                                       [UIColor colorWithRed:0.35 green:0.22 blue:0.22 alpha:1],
+                                       self, @selector(onShowCrashLog));
+    [_stack addArrangedSubview:crashButton];
 
     _logView = [[UITextView alloc] init];
     _logView.editable = NO;
@@ -298,6 +308,19 @@ static UIButton *MakeButton(NSString *title, UIColor *color, id target, SEL acti
     _settings.drawBox = _boxSwitch.on;
     _settings.drawDistance = _distanceSwitch.on;
     [self saveSettings];
+}
+
+// 读崩溃日志（闪退排查用）
+- (void)onShowCrashLog {
+    char *log = ESPCrashLogRead();
+    if (log) {
+        _logView.text = [NSString stringWithUTF8String:log];
+        free(log);
+    } else {
+        _logView.text = [NSString stringWithFormat:@"没有日志（%s 不存在）\n\n说明进程还没跑到写日志那一步，"
+                                                   @"或者已被系统直接杀掉；\n把游戏和 App 都划掉重开一次再点。",
+                                                   ESPCrashLogPath()];
+    }
 }
 
 // App 内直接看 ImGui：菜单 + 调试窗口（默认都打开）
@@ -409,6 +432,7 @@ static UIButton *MakeButton(NSString *title, UIColor *color, id target, SEL acti
     nav.navigationBar.barStyle = UIBarStyleBlack;
     self.window.rootViewController = nav;
     [self.window makeKeyAndVisible];
+    ESPLogStep("app: didFinishLaunching done");
     return YES;
 }
 

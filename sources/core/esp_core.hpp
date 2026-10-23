@@ -447,6 +447,12 @@ struct EspSettings {
     std::string moduleName = "DeltaForceClient";
     int  sampleHz          = 60;      // 采样线程频率
     bool verboseLog        = false;
+
+    // 悬浮球（点击展开菜单，再点收起）
+    bool  showBall   = true;
+    float ballX      = 0.06f;         // 归一化坐标 0..1（左上角原点，按屏幕点）
+    float ballY      = 0.40f;
+    float ballRadius = 26.f;          // 点
 };
 
 bool LoadSettings(EspSettings& settings, Offsets& offsets);

@@ -18,6 +18,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include "crashlog.h"
 #include <cstring>
 
 #import "PrivateApi.h"
@@ -256,6 +257,7 @@ static void ESPSetupEventDispatcher(UIApplication *app) {
     self.window = _hudWindow;
     [_hudWindow makeKeyAndVisible];
 
+    ESPLogStep("hud: window made key+visible");
     [self registerWithSpringBoard];
     return YES;
 }
@@ -322,9 +324,21 @@ static void ESPHandleHIDEvent(IOHIDEventRef event) {
         }
     }
 
+    const CGPoint location = [rep location];
+
+    // ---- 悬浮球优先：菜单关着的时候也能点/拖 ----
+    {
+        int ballPhase = -1;
+        if ([rep isTouchDown]) ballPhase = 0;
+        else if ([rep isMove]) ballPhase = 1;
+        else if ([rep isLift] || [rep isCancel] || [rep isInRange] || [rep isInRangeLift]) ballPhase = 2;
+        if (ballPhase >= 0 && ESPHudHandleBallTouch(location, ballPhase)) {
+            return;      // 这一下是球的，不去点菜单
+        }
+    }
+
     if (!ESPHudMenuVisible()) return;
 
-    const CGPoint location = [rep location];
     UITouchPhase phase = UITouchPhaseEnded;
     if ([rep isTouchDown]) phase = UITouchPhaseBegan;
     else if ([rep isMove]) phase = UITouchPhaseMoved;
@@ -360,11 +374,13 @@ static void ESPHIDCallback(void *target, void *refcon, IOHIDServiceRef service, 
 
 int ESPRunHUD(void) {
     @autoreleasepool {
+        ESPLogStep("hud: private api loading");
         if (!hud::api().load()) {
             NSLog(@"[esp] 私有符号加载失败，HUD 无法启动");
             return 1;
         }
 
+        ESPLogStep("hud: private api ok");
         [UIScreen class];
         CFRunLoopGetCurrent();
 
@@ -379,6 +395,7 @@ int ESPRunHUD(void) {
             hud::api().UIApplicationInstantiateSingleton(objc_getClass("ESPHudApplication"));
         }
         UIApplication *app = [UIApplication sharedApplication];
+        ESPLogStep("hud: UIApplication=%p delegate setup", (void *)app);
         ESPSetupEventDispatcher(app);
 
         static ESPHudApplicationDelegate *delegate = nil;

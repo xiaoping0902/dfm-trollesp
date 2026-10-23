@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #import "HudControl.h"
+#include "crashlog.h"
 
 int ESPRunHUD(void);
 
@@ -26,8 +27,12 @@ static void ESPWritePidFile(void) {
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (argc > 1 && strcmp(argv[1], "-hud") == 0) {
+            ESPInstallCrashLogger("hud");
+            ESPLogStep("main: hud mode start");
             ESPWritePidFile();
-            return ESPRunHUD();
+            int rc = ESPRunHUD();
+            ESPLogStep("main: hud exited rc=%d", rc);
+            return rc;
         }
         if (argc > 1 && strcmp(argv[1], "-exit") == 0) {
             ESPHudStop();
@@ -36,6 +41,8 @@ int main(int argc, char *argv[]) {
         if (argc > 1 && strcmp(argv[1], "-check") == 0) {
             return ESPHudIsRunning() ? 1 : 0;
         }
+        ESPInstallCrashLogger("app");
+        ESPLogStep("main: app mode start (argc=%d)", argc);
         return UIApplicationMain(argc, argv, @"ESPApplication", @"ESPAppDelegate");
     }
 }

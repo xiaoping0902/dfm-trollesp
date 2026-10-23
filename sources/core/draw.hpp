@@ -20,6 +20,7 @@ struct MenuResult {
     bool reinit = false;
     bool save = false;
     bool close = false;
+    bool collapse = false;   // 收起成悬浮球
     bool exitApp = false;
 };
 

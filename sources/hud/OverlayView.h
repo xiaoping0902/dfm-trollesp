@@ -21,9 +21,13 @@
 - (void)setMenuOpen:(BOOL)open;
 - (void)setDebugWindowOpen:(BOOL)open;
 - (void)reloadSettingsFromDisk;
+
+// 悬浮球：0=按下 1=移动 2=抬起；命中返回 YES（调用方就别再把这次触摸喂给游戏）
+- (BOOL)handleBallTouchAt:(CGPoint)point phase:(int)phase;
 @end
 
 // 给 HUD 窗口 / HID 回调用的 C 接口
 BOOL ESPHudMenuVisible(void);
 void ESPHudToggleMenu(void);
 void ESPHudShutdown(void);
+BOOL ESPHudHandleBallTouch(CGPoint point, int phase);

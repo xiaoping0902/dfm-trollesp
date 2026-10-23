@@ -40,6 +40,10 @@ void ESPHudShutdown(void) {
     exit(0);
 }
 
+BOOL ESPHudHandleBallTouch(CGPoint point, int phase) {
+    return gOverlay ? [gOverlay handleBallTouchAt:point phase:phase] : NO;
+}
+
 // ---------------------------------------------------------------------------
 // ImGui 样式 / 字体
 // ---------------------------------------------------------------------------
@@ -133,6 +137,11 @@ static ImFont *ESPLoadFont(void) {
     bool _previewMode;
     bool _autoOpened;
     std::atomic<bool> _userTouched;
+
+    bool _ballDragging;
+    bool _ballMoved;
+    CGPoint _ballDragStart;
+    CGPoint _ballDragOffset;
 
     double _lastFrameTime;
     int _notifyToken;
@@ -254,6 +263,77 @@ static ImFont *ESPLoadFont(void) {
     if (next) {
         [self reloadSettingsFromDisk];
     }
+}
+
+#pragma mark - 悬浮球
+
+- (BOOL)handleBallTouchAt:(CGPoint)point phase:(int)phase {
+    if (_previewMode) return NO;
+    if ([self menuVisible]) return NO;          // 菜单开着走正常触摸链路
+
+    esp::EspSettings s;
+    {
+        std::lock_guard<std::mutex> lk(_cfgMu);
+        s = _settings;
+    }
+    if (!s.showBall) return NO;
+
+    const CGFloat W = self.bounds.size.width;
+    const CGFloat H = self.bounds.size.height;
+    if (W < 10 || H < 10) return NO;
+
+    const CGFloat r = s.ballRadius;
+    const CGPoint center = CGPointMake(s.ballX * W, s.ballY * H);
+    const CGFloat dx = point.x - center.x;
+    const CGFloat dy = point.y - center.y;
+    const CGFloat dist2 = dx * dx + dy * dy;
+    const CGFloat hitR = r + 14.0;              // 手指比球粗，给点余量
+
+    if (phase == 0) {                            // 按下
+        if (dist2 > hitR * hitR) return NO;
+        _ballDragging = YES;
+        _ballMoved = NO;
+        _ballDragStart = point;
+        _ballDragOffset = CGPointMake(center.x - point.x, center.y - point.y);
+        _userTouched = true;
+        return YES;
+    }
+
+    if (!_ballDragging) return NO;
+
+    if (phase == 1) {                            // 移动
+        if (fabs(point.x - _ballDragStart.x) > 8 || fabs(point.y - _ballDragStart.y) > 8) {
+            _ballMoved = YES;
+        }
+        CGFloat nx = point.x + _ballDragOffset.x;
+        CGFloat ny = point.y + _ballDragOffset.y;
+        nx = fmax(r + 4, fmin(W - r - 4, nx));
+        ny = fmax(r + 4, fmin(H - r - 4, ny));
+
+        std::lock_guard<std::mutex> lk(_cfgMu);
+        _settings.ballX = (float)(nx / W);
+        _settings.ballY = (float)(ny / H);
+        return YES;
+    }
+
+    // phase == 2 抬起
+    _ballDragging = NO;
+    if (!_ballMoved) {
+        // 单击球 -> 展开菜单（顺带把调试窗口也打开，方便看数据）
+        _menuOpen = true;
+        _debug.windowOpen = true;
+        [self reloadSettingsFromDisk];
+    } else {
+        esp::EspSettings cur;
+        esp::Offsets off;
+        {
+            std::lock_guard<std::mutex> lk(_cfgMu);
+            cur = _settings;
+            off = _offsets;
+        }
+        esp::SaveSettings(cur, off);           // 记住球的位置
+    }
+    return YES;
 }
 
 static bool ESPOffsetsDiffer(const esp::Offsets &a, const esp::Offsets &b) {
@@ -444,6 +524,19 @@ static bool ESPOffsetsDiffer(const esp::Offsets &a, const esp::Offsets &b) {
         esp::DrawESP(ImGui::GetBackgroundDrawList(), _snap, settings, io.DisplaySize);
     }
 
+    // 悬浮球：菜单关着的时候常驻，点一下展开
+    if (![self menuVisible] && settings.showBall) {
+        ImDrawList *dl = ImGui::GetBackgroundDrawList();
+        const ImVec2 c(settings.ballX * io.DisplaySize.x, settings.ballY * io.DisplaySize.y);
+        const float r = settings.ballRadius;
+        dl->AddCircleFilled(ImVec2(c.x, c.y + 1.5f), r + 1.f, IM_COL32(0, 0, 0, 80));
+        dl->AddCircleFilled(c, r, IM_COL32(24, 140, 88, 205));
+        dl->AddCircle(c, r, IM_COL32(130, 255, 180, 235), 0, 2.0f);
+        const char *label = "ESP";
+        const ImVec2 ts = ImGui::CalcTextSize(label);
+        dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 240), label);
+    }
+
     // 调试数据：窗口开着 / 需要标号或射线时才让采样线程填骨骼明细
     const bool needDebugData =
         _debug.windowOpen || _debug.boneLabels || _debug.boneRays;
@@ -473,7 +566,7 @@ static bool ESPOffsetsDiffer(const esp::Offsets &a, const esp::Offsets &b) {
         if (result.reinit) {
             _reinitNeeded = true;
         }
-        if (result.close) {
+        if (result.close || result.collapse) {
             _menuOpen = false;
             _debug.windowOpen = false;
         }
